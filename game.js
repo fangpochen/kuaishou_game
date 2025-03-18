@@ -21,298 +21,120 @@ const config = {
 
 class Game {
   constructor() {
-    // 游戏加载标志
-    this.isLoading = true;
-    this.loadingProgress = 0;
-    this.loadingStartTime = Date.now();
-    this.lastLoggedProgress = 0; // 初始化日志记录进度
-    this.timeAt90Percent = 0;    // 初始化90%进度的时间戳
-    
-    console.log(`[游戏初始化] 开始初始化游戏，时间戳: ${Date.now()}`);
-    
-    // 获取系统信息以适配屏幕
     try {
-      const systemInfo = kwaigame.getSystemInfoSync();
-      console.log(`[游戏初始化] 获取系统信息: width=${systemInfo.windowWidth}, height=${systemInfo.windowHeight}`);
+      console.log(`[游戏初始化] 开始初始化游戏，时间戳: ${Date.now()}`);
       
-      this.canvas = kwaigame.createCanvas();
-      this.ctx = this.canvas.getContext('2d');
+      // 不使用全局对象记录实例
       
-      // 设置画布尺寸为屏幕大小
-      this.canvas.width = systemInfo.windowWidth;
-      this.canvas.height = systemInfo.windowHeight;
+      // 游戏加载标志
+      this.isLoading = true;
+      this.loadingProgress = 0;
+      this.loadingStartTime = Date.now();
+      this.lastLoggedProgress = 0; // 初始化日志记录进度
+      this.timeAt90Percent = 0;    // 初始化90%进度的时间戳
       
-      // 更新配置尺寸
-      config.width = systemInfo.windowWidth;
-      config.height = systemInfo.windowHeight;
-      console.log(`[游戏初始化] 画布和配置尺寸设置完成: ${config.width}x${config.height}`);
-    } catch (e) {
-      console.error('[游戏初始化] 初始化画布失败:', e);
-    }
-    
-    // 游戏状态
-    this.isStartScreen = true; // 是否显示启动界面
-    this.score = 0;
-    this.isGameOver = false;
-    this.lives = config.maxLives;
-    this.isReviving = false;
-    this.reviveCountdown = 0;
-    
-    // 侧边栏相关状态 - 直接设置为禁用
-    this.isFromSidebar = false;
-    this.sidebarEnabled = false; // 禁用侧边栏功能
-    this.sidebarRewardAvailable = false;
-    this.lastRewardTime = 0;
-    
-    // 加载本地存储设置
-    try {
-      this.lastRewardTime = kwaigame.getStorageSync('lastRewardTime') || 0;
-    } catch (e) {
-      console.error('[游戏初始化] 读取本地存储失败:', e);
-    }
-    
-    // 初始化障碍物数组
-    this.obstacles = [];
-    
-    // 爆炸效果数组
-    this.explosions = [];
-    
-    // 启动界面动画效果参数
-    this.startScreenEffects = {
-      particles: [],
-      particleCount: 50,
-      titleScale: 1,
-      titleScaleDirection: 0.001,
-      btnPulse: 0,
-      timestamp: Date.now()
-    };
-    
-    // 启动界面按钮
-    this.startBtn = {
-      x: config.width/2 - 100,
-      y: config.height/2 + 50,
-      width: 200,
-      height: 60,
-      text: '开始游戏'
-    };
-    
-    // 游戏标题
-    this.gameTitle = {
-      text: '无敌冲刺大乱斗',
-      x: config.width/2,
-      y: config.height/2 - 50,
-      font: '36px Arial',
-      color: '#4285f4'
-    };
-    
-    // 初始化UI配置
-    // 重新开始按钮
-    this.restartBtn = {
-      x: config.width/2 - 80,
-      y: config.height/2 + 80,
-      width: 160,
-      height: 50
-    };
-    
-    // 侧边栏相关按钮
-    this.sidebarBtn = {
-      x: 20,
-      y: 120,
-      width: 100,
-      height: 40,
-      text: '入口有礼'
-    };
-    
-    this.gotoSidebarBtn = {
-      x: config.width - 120,
-      y: 120,
-      width: 100,
-      height: 40,
-      text: '去侧边栏'
-    };
-    
-    this.getRewardBtn = {
-      x: config.width - 120,
-      y: 120,
-      width: 100,
-      height: 40,
-      text: '领取奖励'
-    };
-    
-    // 分享按钮
-    this.shareBtn = {
-      x: config.width - 120,
-      y: 70,
-      width: 100,
-      height: 40,
-      text: '分享游戏'
-    };
-    
-    // 对话框配置
-    this.sidebarDialog = {
-      visible: false,
-      x: config.width/2 - 150,
-      y: config.height/2 - 100,
-      width: 300,
-      height: 200
-    };
-    
-    // 广告相关
-    this.reviveAd = null; // 复活广告对象
-    this.hasWatchedAd = false; // 是否已观看广告
-    
-    console.log('[游戏初始化] 游戏状态初始化完成');
-    console.log('[游戏初始化] UI配置初始化完成');
-    
-    // 开始游戏循环
-    console.log('[游戏初始化] 启动游戏循环');
-    this.gameLoop();
-    
-    // 开始资源加载过程
-    console.log('[游戏初始化] 开始加载资源');
-    this.loadingProgress = 10;
-    
-    // 设置全局加载超时 - 缩短到5秒
-    const loadingTimeout = setTimeout(() => {
-      console.warn(`[资源加载] 资源加载超时，强制完成加载，时间戳: ${Date.now()}`);
-      this.loadingProgress = 100;
-      this.isLoading = false;
-    }, 5000); // 5秒超时
-    
-    // 直接初始化玩家对象
-    console.log('[资源加载] 初始化玩家对象');
-    
-    // 初始化玩家
-    this.player = {
-      width: 60,
-      height: 80,
-      x: (config.width - 60) / 2,
-      y: config.height - 120,
-      speed: config.playerSpeed,
-      moveDirection: 0,
-      verticalDirection: 0,
-      verticalSpeed: config.playerSpeed * 0.8,
-      dashCooldown: 0,
-      isDashing: false,
-      dashDuration: 0,
-      maxDashDuration: 500,
-      dashSpeed: config.playerSpeed * 2,
-      isVisible: true,
-      waveSkill: {
-        isActive: false,
-        radius: 0,
-        duration: 0,
-        cooldown: 0,
-        center: {x: 0, y: 0}
-      },
-      hitbox: {
-        offsetX: 15,
-        offsetY: 15,
-        width: 30,
-        height: 50
-      }
-    };
-    
-    // 添加控制区域配置
-    this.controlAreas = {
-      left: { x: 0, y: config.height - 200, width: config.width / 4, height: 100 },
-      right: { x: config.width * 3/4, y: config.height - 200, width: config.width / 4, height: 100 },
-      up: { x: config.width / 4, y: config.height - 200, width: config.width / 4, height: 100 },
-      down: { x: config.width / 2, y: config.height - 200, width: config.width / 4, height: 100 },
-      dashBtn: { x: config.width - 80, y: config.height - 80, radius: 30 },
-      waveBtn: { x: config.width - 80, y: config.height - 160, radius: 30 }
-    };
-    
-    this.loadingProgress = 40;
-    
-    // 初始化事件监听
-    console.log('[资源加载] 初始化事件监听');
-    
-    // 监听显示事件
-    kwaigame.onShow(() => {
+      // 获取系统信息以适配屏幕
       try {
-        // 优先使用 getLaunchOptionsSync
-        const options = kwaigame.getLaunchOptionsSync ? kwaigame.getLaunchOptionsSync() : {};
-        // 判断是否从侧边栏进入
-        this.isFromSidebar = (
-          options.scene === 'sidebar' || 
-          options.scene === 'sidebarCard'
-        );
-        console.log('是否从侧边栏进入:', this.isFromSidebar);
+        const systemInfo = kwaigame.getSystemInfoSync();
+        console.log(`[游戏初始化] 获取系统信息: width=${systemInfo.windowWidth}, height=${systemInfo.windowHeight}`);
+        
+        this.canvas = kwaigame.createCanvas();
+        this.ctx = this.canvas.getContext('2d');
+        
+        // 设置画布尺寸为屏幕大小
+        this.canvas.width = systemInfo.windowWidth;
+        this.canvas.height = systemInfo.windowHeight;
+        
+        // 更新配置尺寸
+        config.width = systemInfo.windowWidth;
+        config.height = systemInfo.windowHeight;
+        console.log(`[游戏初始化] 画布和配置尺寸设置完成: ${config.width}x${config.height}`);
+      } catch (e) {
+        console.error('[游戏初始化] 初始化画布失败:', e);
+        // 使用默认尺寸
+        this.canvas = kwaigame.createCanvas();
+        this.ctx = this.canvas.getContext('2d');
+        console.log(`[游戏初始化] 使用默认配置尺寸: ${config.width}x${config.height}`);
+      }
+      
+      // 游戏状态
+      this.isStartScreen = true; // 是否显示启动界面
+      this.score = 0;
+      this.isGameOver = false;
+      this.lives = config.maxLives;
+      this.isReviving = false;
+      this.reviveCountdown = 0;
+      
+      // 侧边栏相关状态 - 直接设置为禁用
+      this.isFromSidebar = false;
+      this.sidebarEnabled = false; // 禁用侧边栏功能
+      this.sidebarRewardAvailable = false;
+      this.lastRewardTime = 0;
+      
+      // 加载本地存储设置
+      try {
+        this.lastRewardTime = kwaigame.getStorageSync('lastRewardTime') || 0;
+      } catch (e) {
+        console.error('[游戏初始化] 读取本地存储失败:', e);
+      }
+      
+      // 初始化障碍物数组
+      this.obstacles = [];
+      
+      // 爆炸效果数组
+      this.explosions = [];
+      
+      // 启动界面动画效果参数
+      this.startScreenEffects = {
+        particles: [],
+        particleCount: 50,
+        titleScale: 1,
+        titleScaleDirection: 0.001,
+        btnPulse: 0,
+        timestamp: Date.now()
+      };
+      
+      // 启动界面按钮
+      this.startBtn = {
+        x: config.width/2 - 100,
+        y: config.height/2 + 50,
+        width: 200,
+        height: 60,
+        text: '开始游戏'
+      };
+      
+      // 游戏标题
+      this.gameTitle = {
+        text: '无敌冲刺大乱斗',
+        x: config.width/2,
+        y: config.height/2 - 50,
+        font: '36px Arial',
+        color: '#4285f4'
+      };
+      
+      // 初始化UI配置
+      this.initUIConfig();
+      console.log('[游戏初始化] UI配置初始化完成');
+      
+      // 开始游戏循环
+      console.log('[游戏初始化] 启动游戏循环');
+      this.gameLoop();
+      
+      // 开始资源加载过程
+      console.log('[游戏初始化] 开始加载资源');
+      this.loadResources();
+      
+    } catch (e) {
+      console.error('[游戏初始化] 初始化游戏失败:', e);
+      // 尝试强制完成加载，避免卡在加载界面
+      try {
+        this.loadingProgress = 100;
+        this.isLoading = false;
+        console.log('[游戏初始化] 错误恢复：强制完成加载');
       } catch(err) {
-        console.error('获取启动参数失败:', err);
-        this.isFromSidebar = false;
+        console.error('[游戏初始化] 错误恢复失败:', err);
       }
-    });
-    
-    // 跟踪活动的触摸点
-    this.activeTouches = {};
-    
-    kwaigame.onTouchStart(res => {
-      // 处理每个触摸点
-      res.touches.forEach(touch => {
-        this.activeTouches[touch.identifier] = touch;
-        this.handleTouch(touch, true);
-      });
-    });
-    
-    kwaigame.onTouchMove(res => {
-      // 更新移动中的触摸点
-      res.touches.forEach(touch => {
-        this.activeTouches[touch.identifier] = touch;
-        this.handleTouch(touch, false);
-      });
-    });
-    
-    kwaigame.onTouchEnd(res => {
-      // 处理结束的触摸
-      const activeIds = new Set(res.touches.map(t => t.identifier));
-      
-      // 找出已经结束的触摸点
-      Object.keys(this.activeTouches).forEach(id => {
-        if (!activeIds.has(parseInt(id))) {
-          // 触摸结束的处理
-          this.handleTouchEnd(this.activeTouches[id]);
-          delete this.activeTouches[id];
-        }
-      });
-      
-      // 如果所有触摸都结束了，停止所有移动
-      if (res.touches.length === 0) {
-        this.player.moveDirection = 0;
-        this.player.verticalDirection = 0;
-      }
-    });
-    
-    this.loadingProgress = 70;
-    
-    // 完全禁用图片加载
-    console.log('[资源加载] 禁用图片加载，使用方块渲染');
-    this.playerImageLoaded = false;
-    this.enemyImageLoaded = false;
-    
-    // 加载完成
-    this.loadingProgress = 100;
-    
-    // 清除加载计时器
-    clearTimeout(loadingTimeout);
-    
-    // 短暂延迟后结束加载状态，让用户看到100%
-    setTimeout(() => {
-      console.log(`[资源加载] 完成加载，进入游戏，时间戳: ${Date.now()}`);
-      this.isLoading = false;
-      
-      // 在进入游戏后再初始化广告，彻底与游戏加载分离
-      setTimeout(() => {
-        try {
-          console.log('[资源加载] 开始后台初始化广告');
-          this.initAds();
-        } catch (e) {
-          console.error('[资源加载] 初始化广告失败:', e);
-        }
-      }, 1000);
-      
-    }, 500);
+    }
   }
 
   // 添加加载监控器
@@ -468,6 +290,9 @@ class Game {
       }, 1000);
       
     }, 500);
+     
+    // 添加加载监控器 - 确保即使资源加载卡住也能进入游戏
+    this.startLoadingMonitor();
   }
   
   // 在render方法中添加加载界面渲染
@@ -2162,10 +1987,34 @@ class Game {
 
 // 游戏启动
 function startGame() {
-  new Game();
+  console.log('[游戏启动] 开始游戏初始化，时间戳:', Date.now());
+  try {
+    new Game();
+    console.log('[游戏启动] 游戏初始化完成');
+  } catch(err) {
+    console.error('[游戏启动] 游戏初始化失败:', err);
+    // 如果初始化失败，尝试再次启动
+    setTimeout(() => {
+      console.log('[游戏启动] 尝试重新启动游戏');
+      try {
+        new Game();
+      } catch(e) {
+        console.error('[游戏启动] 重新启动失败:', e);
+      }
+    }, 1000);
+  }
 }
 
-// 监听显示事件
+// 立即启动游戏，不等待onShow事件
+console.log('[游戏启动] 立即启动游戏');
+startGame();
+
+// 同时保留onShow事件监听作为备份
 kwaigame.onShow(() => {
+  console.log('[游戏启动] onShow事件触发');
+  // 使用一个静态变量来检查游戏是否已初始化
+  if (!Game.isInitialized) {
+    console.log('[游戏启动] 通过onShow事件启动游戏');
     startGame();
+  }
 });
