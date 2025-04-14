@@ -24,6 +24,42 @@ class Game {
     try {
       console.log(`[游戏初始化] 开始初始化游戏，时间戳: ${Date.now()}`);
       
+      // 尝试列出根目录内容
+      try {
+        const fs = kwaigame.getFileSystemManager();
+        fs.readdir({
+          dirPath: '/', // 读取根目录
+          success: (res) => {
+            console.log('[文件系统] 根目录内容:', res.files);
+            // 进一步读取 /assets/ 目录内容
+            fs.readdir({
+              dirPath: '/assets/',
+              success: (assetsRes) => {
+                console.log('[文件系统] /assets/ 目录内容:', assetsRes.files);
+                // 进一步读取 /assets/images/ 目录内容
+                fs.readdir({
+                  dirPath: '/assets/images/',
+                  success: (imagesRes) => {
+                    console.log('[文件系统] /assets/images/ 目录内容:', imagesRes.files);
+                  },
+                  fail: (imagesErr) => {
+                    console.error('[文件系统] 读取 /assets/images/ 目录失败:', imagesErr);
+                  }
+                });
+              },
+              fail: (assetsErr) => {
+                console.error('[文件系统] 读取 /assets/ 目录失败:', assetsErr);
+              }
+            });
+          },
+          fail: (err) => {
+            console.error('[文件系统] 读取根目录失败:', err);
+          }
+        });
+      } catch(fsError) {
+        console.error('[文件系统] 获取或使用FileSystemManager失败:', fsError);
+      }
+      
       // 不使用全局对象记录实例
       
       // 游戏加载标志
@@ -64,6 +100,15 @@ class Game {
       this.lives = config.maxLives;
       this.isReviving = false;
       this.reviveCountdown = 0;
+      this.isSettingsScreen = false; // 添加设置界面状态
+      this.openId = null; // 存储用户的OpenID
+      this.isPaused = true; // 游戏是否暂停，初始为暂停状态
+      
+      // 登录凭证和OpenID相关
+      this.loginCode = null; // 临时登录凭证
+      this.serverOpenId = null; // 服务器返回的OpenID
+      this.sessionKey = null; // 会话密钥
+      this.unionId = null; // 关联用户的唯一标识
       
       // 侧边栏相关状态 - 直接设置为禁用
       this.isFromSidebar = false;
@@ -83,6 +128,12 @@ class Game {
       
       // 爆炸效果数组
       this.explosions = [];
+      
+      // 图片资源
+      this.playerImage = null;
+      this.enemyImage = null;
+      this.playerImageLoaded = false;
+      this.enemyImageLoaded = false;
       
       // 启动界面动画效果参数
       this.startScreenEffects = {
@@ -202,16 +253,16 @@ class Game {
     // 记录开始加载资源时间
     console.log(`[资源加载] 开始加载资源，时间戳: ${Date.now()}`);
     
-    // 设置全局加载超时 - 缩短到5秒
+    // 设置全局加载超时 - 缩短到10秒以允许图片加载
     const loadingTimeout = setTimeout(() => {
       console.warn(`[资源加载] 资源加载超时，强制完成加载，时间戳: ${Date.now()}`);
       this.loadingProgress = 100;
       this.isLoading = false;
-    }, 5000); // 5秒超时
+    }, 10000); // 10秒超时
     
     // 1. 开始加载过程
-    console.log('[资源加载] 设置进度: 20%');
-    this.loadingProgress = 20;
+    console.log('[资源加载] 设置进度: 10%');
+    this.loadingProgress = 10;
     
     // 2. 初始化玩家对象 - 直接内联代码而不是调用函数
     console.log('[资源加载] 开始初始化玩家对象');
@@ -258,41 +309,110 @@ class Game {
     };
     
     console.log('[资源加载] 玩家对象初始化完成');
-    this.loadingProgress = 50;
+    this.loadingProgress = 30; // 更新进度
     
-    // 3. 初始化事件监听
-    console.log('[资源加载] 设置进度: 80%，开始初始化事件监听');
-    this.initEventListeners();
-    console.log('[资源加载] 事件监听初始化完成');
-    this.loadingProgress = 100;
-    
-    // 完全禁用图片加载
-    console.log('[资源加载] 禁用图片加载，使用方块渲染');
-    this.playerImageLoaded = false;
-    this.enemyImageLoaded = false;
-    
-    // 清除加载计时器
-    clearTimeout(loadingTimeout);
-    
-    // 短暂延迟后结束加载状态，让用户看到100%
-    setTimeout(() => {
-      console.log(`[资源加载] 完成加载，进入游戏，时间戳: ${Date.now()}`);
-      this.isLoading = false;
+    // 3. 加载图片资源
+    console.log('[资源加载] 设置进度: 30%，开始加载图片资源');
+    this.loadImages(() => {
+      // 图片加载成功或失败后的回调
+      this.loadingProgress = 80; // 更新进度
+      console.log('[资源加载] 图片资源加载尝试完成，设置进度: 80%');
+
+      // 4. 初始化事件监听
+      console.log('[资源加载] 设置进度: 80%，开始初始化事件监听');
+      this.initEventListeners();
+      console.log('[资源加载] 事件监听初始化完成');
+      this.loadingProgress = 100;
+      console.log('[资源加载] 设置进度: 100%');
       
-      // 在进入游戏后再初始化广告，彻底与游戏加载分离
+      // 清除加载计时器
+      clearTimeout(loadingTimeout);
+      
+      // 短暂延迟后结束加载状态，让用户看到100%
       setTimeout(() => {
-        try {
-          console.log('[资源加载] 开始后台初始化广告');
-          this.initAds();
-        } catch (e) {
-          console.error('[资源加载] 初始化广告失败:', e);
+        // 检查是否仍在加载（可能因为超时被强制完成）
+        if (this.isLoading) {
+          console.log(`[资源加载] 完成加载，进入游戏，时间戳: ${Date.now()}`);
+          this.isLoading = false;
         }
-      }, 1000);
-      
-    }, 500);
+        
+        // 在进入游戏后再初始化广告，彻底与游戏加载分离
+        setTimeout(() => {
+          try {
+            console.log('[资源加载] 开始后台初始化广告');
+            this.initAds();
+          } catch (e) {
+            console.error('[资源加载] 初始化广告失败:', e);
+          }
+        }, 1000);
+        
+      }, 500);
+    });
      
     // 添加加载监控器 - 确保即使资源加载卡住也能进入游戏
     this.startLoadingMonitor();
+  }
+  
+  // 添加加载图片的方法
+  loadImages(callback) {
+    let imagesToLoad = 2; // 需要加载的图片数量
+    const checkCompletion = () => {
+      imagesToLoad--;
+      if (imagesToLoad === 0) {
+        console.log('[图片加载] 所有图片加载尝试完成');
+        if (callback) callback();
+      }
+    };
+
+    // 加载玩家图片
+    try {
+      this.playerImage = kwaigame.createImage();
+      this.playerImage.src = '/assets/images/yingxiong.png'; // 使用日志中找到的实际文件名
+      this.playerImage.onload = () => {
+        console.log('[图片加载] 玩家图片(yingxiong.png)加载成功');
+        this.playerImageLoaded = true;
+        this.loadingProgress = Math.min(this.loadingProgress + 25, 80); // 更新进度
+        checkCompletion();
+      };
+      this.playerImage.onerror = (e) => {
+        console.error('[图片加载] 玩家图片加载失败:', e);
+        // 尝试打印更详细的错误信息
+        if (e && e.errMsg) { 
+          console.error('[图片加载] 详细错误:', e.errMsg);
+        }
+        this.playerImageLoaded = false;
+        checkCompletion();
+      };
+    } catch (e) {
+        console.error('[图片加载] 创建玩家图片失败:', e);
+        this.playerImageLoaded = false;
+        checkCompletion(); // 即使创建失败也要减少计数
+    }
+
+    // 加载敌人图片
+    try {
+      this.enemyImage = kwaigame.createImage();
+      this.enemyImage.src = '/assets/images/monster.png'; // 使用日志中找到的实际文件名
+      this.enemyImage.onload = () => {
+        console.log('[图片加载] 敌人图片(monster.png)加载成功');
+        this.enemyImageLoaded = true;
+        this.loadingProgress = Math.min(this.loadingProgress + 25, 80); // 更新进度
+        checkCompletion();
+      };
+      this.enemyImage.onerror = (e) => {
+        console.error('[图片加载] 敌人图片加载失败:', e);
+        // 尝试打印更详细的错误信息
+        if (e && e.errMsg) { 
+          console.error('[图片加载] 详细错误:', e.errMsg);
+        }
+        this.enemyImageLoaded = false;
+        checkCompletion();
+      };
+    } catch (e) {
+        console.error('[图片加载] 创建敌人图片失败:', e);
+        this.enemyImageLoaded = false;
+        checkCompletion(); // 即使创建失败也要减少计数
+    }
   }
   
   // 在render方法中添加加载界面渲染
@@ -306,10 +426,20 @@ class Game {
     // 如果在启动界面，渲染启动界面后返回
     if (this.isStartScreen) {
       this.renderStartScreen();
-                return;
-            }
+      return;
+    }
+    
+    // 如果在设置界面，渲染设置界面后返回
+    if (this.isSettingsScreen) {
+      this.renderSettingsScreen();
+      return;
+    }
 
     this.ctx.clearRect(0, 0, config.width, config.height);
+    
+    // 设置背景色
+    this.ctx.fillStyle = '#FFFFE0'; // 淡黄色
+    this.ctx.fillRect(0, 0, config.width, config.height);
     
     // 绘制发波效果（在障碍物下方）
     if (this.player.waveSkill.isActive) {
@@ -346,13 +476,25 @@ class Game {
         this.ctx.rotate(rotationAngle);
       }
       
-      // 绘制小怪，使用方块渲染
-      this.ctx.fillRect(
-        -obstacle.width / 2,
-        -obstacle.height / 2,
-        obstacle.width,
-        obstacle.height
-      );
+      // 绘制小怪，优先使用图片，否则使用方块
+      if (this.enemyImageLoaded && this.enemyImage) {
+        this.ctx.drawImage(
+          this.enemyImage,
+          -obstacle.width / 2,
+          -obstacle.height / 2,
+          obstacle.width,
+          obstacle.height
+        );
+      } else {
+        // 绘制备用方块
+        this.ctx.fillStyle = '#ea4335'; // 保留备用颜色
+        this.ctx.fillRect(
+          -obstacle.width / 2,
+          -obstacle.height / 2,
+          obstacle.width,
+          obstacle.height
+        );
+      }
       
       // 恢复绘图状态
       this.ctx.restore();
@@ -360,14 +502,25 @@ class Game {
     
     // 只在非复活状态下绘制玩家
     if (this.player.isVisible) {
-      // 使用蓝色方块绘制玩家
-      this.ctx.fillStyle = '#4285f4';
-      this.ctx.fillRect(
-        this.player.x,
-        this.player.y,
-        this.player.width,
-        this.player.height
-      );
+      // 优先使用图片绘制玩家，否则使用蓝色方块
+      if (this.playerImageLoaded && this.playerImage) {
+        this.ctx.drawImage(
+          this.playerImage,
+          this.player.x,
+          this.player.y,
+          this.player.width,
+          this.player.height
+        );
+      } else {
+        // 绘制备用方块
+        this.ctx.fillStyle = '#4285f4'; // 保留备用颜色
+        this.ctx.fillRect(
+          this.player.x,
+          this.player.y,
+          this.player.width,
+          this.player.height
+        );
+      }
       
       // 绘制冲刺特效（如果正在冲刺）
       if (this.player.isDashing) {
@@ -774,6 +927,7 @@ class Game {
   backToStartScreen() {
     this.resetGame();
     this.isStartScreen = true;
+    this.isPaused = true; // 设置为暂停状态
   }
 
   // 修改生成障碍物的方法
@@ -911,8 +1065,8 @@ class Game {
     );
     
     // 绘制按钮文字
-            this.ctx.fillStyle = '#ffffff';
-            this.ctx.font = '24px Arial';
+    this.ctx.fillStyle = '#ffffff';
+    this.ctx.font = '24px Arial';
     this.ctx.fillText(
       this.startBtn.text,
       0,
@@ -920,9 +1074,17 @@ class Game {
     );
     this.ctx.restore();
     
+    // 绘制设置按钮
+    this.drawButton(
+      this.settingsBtn,
+      '#34a853', // 绿色
+      '#ffffff'
+    );
+    
     // 绘制小提示
     this.ctx.fillStyle = '#666666';
     this.ctx.font = '14px Arial';
+    this.ctx.textAlign = 'center';
     this.ctx.fillText('点击按钮开始游戏', config.width/2, this.startBtn.y + this.startBtn.height + 30);
     
     // 添加软著号和著作权人信息
@@ -1147,6 +1309,42 @@ class Game {
       text: '分享游戏'
     };
     
+    // 添加广告积分按钮
+    this.adRewardBtn = {
+      x: 20,
+      y: 20,
+      width: 120,
+      height: 40,
+      text: '看广告得分'
+    };
+    
+    // 添加返回主页按钮
+    this.homeBtn = {
+      x: config.width - 100,
+      y: 20,
+      width: 80,
+      height: 40,
+      text: '主页'
+    };
+    
+    // 添加设置按钮
+    this.settingsBtn = {
+      x: config.width - 100,
+      y: config.height/2 + 140,
+      width: 80,
+      height: 40,
+      text: '设置'
+    };
+    
+    // 返回按钮(从设置页返回)
+    this.backBtn = {
+      x: 20,
+      y: 20,
+      width: 80,
+      height: 40,
+      text: '返回'
+    };
+    
     // 对话框配置
     this.sidebarDialog = {
       visible: false,
@@ -1169,6 +1367,122 @@ class Game {
     
     // 初始化触摸事件
     this.initTouchEvents();
+    
+    // 尝试获取OpenID
+    this.getOpenId();
+  }
+  
+  // 获取OpenID
+  getOpenId() {
+    // 优先使用ks命名空间(快手小游戏官方API)
+    if (typeof ks !== 'undefined' && ks.login) {
+      try {
+        console.log('[登录] 尝试使用ks.login获取临时凭证');
+        ks.login({
+          success: (res) => {
+            if (res && res.code) {
+              console.log('[登录] 获取临时凭证成功:', res.code);
+              // 注意：这里获取的是临时凭证code，需要在服务器使用auth.code2Session接口获取真正的OpenID
+              // 接口文档：https://ks-game-docs.kuaishou.com/minigame/api/open/login/auth.code2Session.html
+              this.loginCode = res.code;
+              this.openId = '临时凭证: ' + res.code + ' (请在服务器端调用auth.code2Session接口获取OpenID)';
+              
+              // 尝试向服务器请求OpenID
+              this.requestOpenIdFromServer(res.code);
+            }
+          },
+          fail: (err) => {
+            console.error('[登录] 获取临时凭证失败:', err);
+            this.openId = '获取临时凭证失败';
+          }
+        });
+      } catch (e) {
+        console.error('[登录] 调用ks.login出错:', e);
+        this.openId = '登录API调用出错';
+      }
+    } 
+    // 尝试使用kwaigame命名空间(兼容旧API)
+    else if (typeof kwaigame !== 'undefined' && kwaigame.login) {
+      try {
+        console.log('[登录] 尝试使用kwaigame.login获取临时凭证');
+        kwaigame.login({
+          success: (res) => {
+            if (res && res.code) {
+              console.log('[登录] 获取临时凭证成功:', res.code);
+              // 这里同样是临时凭证，需要在服务器换取OpenID
+              this.loginCode = res.code;
+              this.openId = '临时凭证: ' + res.code + ' (请在服务器端调用auth.code2Session接口获取OpenID)';
+              
+              // 尝试向服务器请求OpenID
+              this.requestOpenIdFromServer(res.code);
+            }
+          },
+          fail: (err) => {
+            console.error('[登录] 获取临时凭证失败:', err);
+            this.openId = '获取临时凭证失败';
+          }
+        });
+      } catch (e) {
+        console.error('[登录] 调用kwaigame.login出错:', e);
+        this.openId = '登录API调用出错';
+      }
+    } else {
+      console.error('[登录] 当前环境不支持login API');
+      this.openId = '当前环境不支持login API';
+    }
+  }
+  
+  // 向服务器请求OpenID
+  requestOpenIdFromServer(code) {
+    try {
+      console.log('[请求OpenID] 开始向服务器请求OpenID，code:', code);
+      
+      // 检查是否在网络环境中
+      if (typeof fetch === 'undefined') {
+        console.error('[请求OpenID] 当前环境不支持fetch API');
+        return;
+      }
+      
+      // 服务器API地址 - 这里需要修改为实际的服务器地址
+      const serverUrl = 'https://your-server.com/api/v1/kuaishou/auth';
+      
+      // 显示请求中的状态
+      this.serverOpenId = '正在请求服务器...';
+      
+      fetch(serverUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ code: code })
+      })
+      .then(response => {
+        if (!response.ok) {
+          throw new Error('网络响应不正常，状态码: ' + response.status);
+        }
+        return response.json();
+      })
+      .then(data => {
+        console.log('[请求OpenID] 服务器返回数据:', data);
+        if (data && data.open_id) {
+          this.serverOpenId = data.open_id;
+          this.sessionKey = data.session_key;
+          this.unionId = data.union_id;
+          
+          console.log('[请求OpenID] 获取成功，OpenID:', this.serverOpenId);
+        } else {
+          console.error('[请求OpenID] 服务器未返回有效的OpenID');
+          this.serverOpenId = '服务器未返回有效数据';
+        }
+      })
+      .catch(error => {
+        console.error('[请求OpenID] 请求失败:', error);
+        this.serverOpenId = '请求失败: ' + error.message;
+      });
+    } catch (e) {
+      console.error('[请求OpenID] 请求过程发生错误:', e);
+      this.serverOpenId = '请求过程出错';
+    }
   }
 
   // 检查进入场景
@@ -1273,6 +1587,22 @@ class Game {
       );
     }
     */
+    
+    // 绘制广告积分按钮
+    if (!this.isStartScreen && !this.isGameOver && !this.isSettingsScreen) {
+      this.drawButton(
+        this.adRewardBtn,
+        '#ea4335',
+        '#ffffff'
+      );
+      
+      // 绘制返回主页按钮
+      this.drawButton(
+        this.homeBtn,
+        '#4285f4',
+        '#ffffff'
+      );
+    }
 
     // 绘制对话框
     if(this.sidebarDialog && this.sidebarDialog.visible) {
@@ -1392,9 +1722,41 @@ class Game {
     if (this.isStartScreen) {
       if (isStart && this.checkButtonClick(this.startBtn, touch)) {
         this.isStartScreen = false; // 隐藏启动界面
+        this.isPaused = false; // 启动游戏时取消暂停状态
         return;
       }
+      
+      // 检查设置按钮点击
+      if (isStart && this.checkButtonClick(this.settingsBtn, touch)) {
+        this.gotoSettings();
+        return;
+      }
+      
       return; // 启动界面时不处理其他触摸事件
+    }
+    
+    // 设置界面点击处理
+    if (this.isSettingsScreen) {
+      // 检查返回按钮点击
+      if (isStart && this.checkButtonClick(this.backBtn, touch)) {
+        this.goBack();
+        return;
+      }
+      
+      // 检查刷新按钮点击
+      const refreshBtn = {
+        x: config.width - 120,
+        y: 150,
+        width: 80,
+        height: 40
+      };
+      
+      if (isStart && this.checkButtonClick(refreshBtn, touch)) {
+        this.getOpenId(); // 重新获取OpenID
+        return;
+      }
+      
+      return; // 设置界面时不处理其他触摸事件
     }
     
     // 如果游戏结束，检查重新开始按钮
@@ -1403,6 +1765,18 @@ class Game {
         this.resetGame();
         return;
       }
+    }
+    
+    // 检查看广告得分按钮点击
+    if (isStart && this.checkButtonClick(this.adRewardBtn, touch)) {
+      this.showAdForReward();
+      return;
+    }
+    
+    // 检查返回主页按钮点击
+    if (isStart && this.checkButtonClick(this.homeBtn, touch)) {
+      this.backToStartScreen();
+      return;
     }
     
     // 已禁用侧边栏功能，不处理侧边栏相关按钮点击
@@ -1563,10 +1937,8 @@ class Game {
 
   update() {
     try {
-      // 在启动界面时不更新游戏逻辑
-      if (this.isStartScreen || this.isLoading) return;
-      
-      if (this.isGameOver) return;
+      // 在启动界面、设置界面、游戏结束或暂停状态下不更新游戏逻辑
+      if (this.isStartScreen || this.isLoading || this.isGameOver || this.isSettingsScreen || this.isPaused) return;
 
       // 处理复活倒计时
       if (this.isReviving) {
@@ -1926,7 +2298,7 @@ class Game {
     try {
       // 创建广告实例
       this.reviveAd = kwaigame.createRewardedVideoAd({
-        adUnitId: 'adunit-xxxxxxxxxxxxxxxx' // 替换为实际的广告单元ID
+        adUnitId: '2300019979_01' // 使用实际的广告单元ID
       });
 
       // 监听广告关闭事件
@@ -1982,6 +2354,191 @@ class Game {
     console.log('[广告显示] 跳过广告，直接复活玩家');
     this.hasWatchedAd = true; // 标记为已观看广告，避免卡住
     this.completeRevive();
+  }
+
+  // 显示广告获取积分
+  showAdForReward() {
+    console.log('[广告积分] 尝试显示广告获取积分');
+    
+    // 如果没有初始化过广告，先初始化
+    if (!this.rewardAd) {
+      try {
+        console.log('[广告积分] 创建积分广告实例');
+        this.rewardAd = kwaigame.createRewardedVideoAd({
+          adUnitId: '2300019979_01' // 使用实际的广告单元ID
+        });
+        
+        // 监听广告关闭事件
+        if (this.rewardAd && typeof this.rewardAd.onClose === 'function') {
+          this.rewardAd.onClose((res) => {
+            console.log('[广告积分] 广告关闭，结果:', res);
+            if (res && res.isEnded) {
+              // 正常播放结束，给予积分奖励
+              const rewardScore = 20; // 给予20分的奖励
+              this.score += rewardScore;
+              kwaigame.showToast({
+                title: `获得${rewardScore}积分奖励!`,
+                icon: 'success',
+                duration: 2000
+              });
+            } else {
+              // 播放中途退出，不给予奖励
+              kwaigame.showToast({
+                title: '观看完整广告才能获得奖励',
+                icon: 'none',
+                duration: 2000
+              });
+            }
+          });
+        }
+      } catch (error) {
+        console.error('[广告积分] 创建广告实例失败:', error);
+        kwaigame.showToast({
+          title: '广告加载失败，请稍后再试',
+          icon: 'none',
+          duration: 2000
+        });
+        return;
+      }
+    }
+    
+    // 添加标记表示正在显示广告
+    this.isShowingAd = true;
+    
+    try {
+      // 显示广告
+      if (this.rewardAd) {
+        console.log('[广告积分] 显示广告');
+        this.rewardAd.show().then(() => {
+          // 广告显示成功
+          console.log('[广告积分] 广告显示成功');
+          this.isShowingAd = false;
+        }).catch((err) => {
+          // 只有在第一次显示失败时才重试
+          console.log('[广告积分] 第一次显示失败，尝试重新加载:', err);
+          return this.rewardAd.load().then(() => {
+            return this.rewardAd.show();
+          });
+        }).catch((err) => {
+          // 重试失败才显示错误提示
+          console.error('[广告积分] 重试后仍然失败:', err);
+          this.isShowingAd = false;
+          kwaigame.showToast({
+            title: '广告加载失败，请稍后再试',
+            icon: 'none',
+            duration: 2000
+          });
+        });
+      } else {
+        console.log('[广告积分] 广告实例不存在');
+        this.isShowingAd = false;
+        kwaigame.showToast({
+          title: '广告加载中，请稍后再试',
+          icon: 'none',
+          duration: 2000
+        });
+      }
+    } catch (error) {
+      console.error('[广告积分] 显示广告时发生错误:', error);
+      this.isShowingAd = false;
+      kwaigame.showToast({
+        title: '广告正常播放',
+        icon: 'none',
+        duration: 2000
+      });
+    }
+  }
+
+  // 渲染设置界面
+  renderSettingsScreen() {
+    // 清空画布
+    this.ctx.clearRect(0, 0, config.width, config.height);
+    
+    // 绘制背景
+    this.ctx.fillStyle = '#f0f0f0';
+    this.ctx.fillRect(0, 0, config.width, config.height);
+    
+    // 绘制标题
+    this.ctx.fillStyle = '#4285f4';
+    this.ctx.font = '30px Arial';
+    this.ctx.textAlign = 'center';
+    this.ctx.fillText('设置', config.width/2, 80);
+    
+    // 绘制临时凭证(code)标签
+    this.ctx.fillStyle = '#333333';
+    this.ctx.font = '20px Arial';
+    this.ctx.textAlign = 'left';
+    this.ctx.fillText('临时凭证(code):', 40, 150);
+    
+    // 绘制临时凭证值
+    this.ctx.fillStyle = '#666666';
+    this.ctx.font = '16px Arial';
+    
+    // 如果临时凭证太长，需要截断显示
+    let displayCode = this.loginCode || '正在获取...';
+    if (displayCode.length > 30) {
+      displayCode = displayCode.substring(0, 27) + '...';
+    }
+    
+    this.ctx.fillText(displayCode, 40, 180);
+    
+    // 绘制从服务器获取的OpenID
+    this.ctx.fillStyle = '#333333';
+    this.ctx.font = '20px Arial';
+    this.ctx.fillText('服务器返回的OpenID:', 40, 230);
+    
+    this.ctx.fillStyle = '#666666';
+    this.ctx.font = '16px Arial';
+    let displayServerOpenId = this.serverOpenId || '未请求或等待服务器响应';
+    if (displayServerOpenId.length > 30) {
+      displayServerOpenId = displayServerOpenId.substring(0, 27) + '...';
+    }
+    this.ctx.fillText(displayServerOpenId, 40, 260);
+    
+    // 绘制提示信息
+    this.ctx.fillStyle = '#ea4335';
+    this.ctx.font = '14px Arial';
+    this.ctx.fillText('提示: 获取OpenID需服务器配置KS_APP_ID和KS_APP_SECRET', 40, 310);
+    this.ctx.fillText('请修改serverUrl为您的实际服务器地址', 40, 335);
+    
+    // 绘制返回按钮
+    this.drawButton(
+      this.backBtn,
+      '#4285f4',
+      '#ffffff'
+    );
+    
+    // 刷新凭证按钮
+    const refreshBtn = {
+      x: config.width - 120,
+      y: 150,
+      width: 80,
+      height: 40,
+      text: '刷新'
+    };
+    
+    this.drawButton(
+      refreshBtn,
+      '#34a853',
+      '#ffffff'
+    );
+    
+    // 恢复文本对齐默认值
+    this.ctx.textAlign = 'start';
+  }
+  
+  // 进入设置界面
+  gotoSettings() {
+    this.isSettingsScreen = true;
+    this.isStartScreen = false;
+  }
+  
+  // 返回上一界面
+  goBack() {
+    if (this.isSettingsScreen) {
+      this.isSettingsScreen = false;
+      this.isStartScreen = true;
+    }
   }
 }
 
