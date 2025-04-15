@@ -110,6 +110,13 @@ class Game {
       this.sessionKey = null; // 会话密钥
       this.unionId = null; // 关联用户的唯一标识
       
+      // 复制功能相关
+      this.showCopySuccess = false; // 是否显示复制成功提示
+      this.copySuccessTime = 0; // 复制成功时间戳
+      this.copyBtn = null; // 复制按钮
+      this.showOpenIdPopup = false; // 是否显示OpenID弹窗
+      this.popupCreatedTime = 0; // 弹窗创建时间
+      
       // 侧边栏相关状态 - 直接设置为禁用
       this.isFromSidebar = false;
       this.sidebarEnabled = false; // 禁用侧边栏功能
@@ -1329,8 +1336,8 @@ class Game {
     
     // 添加设置按钮
     this.settingsBtn = {
-      x: config.width - 100,
-      y: config.height/2 + 140,
+      x: 20,
+      y: 20,
       width: 80,
       height: 40,
       text: '设置'
@@ -1437,51 +1444,124 @@ class Game {
     try {
       console.log('[请求OpenID] 开始向服务器请求OpenID，code:', code);
       
-      // 检查是否在网络环境中
-      if (typeof fetch === 'undefined') {
-        console.error('[请求OpenID] 当前环境不支持fetch API');
-        return;
-      }
-      
-      // 服务器API地址 - 这里需要修改为实际的服务器地址
-      const serverUrl = 'https://your-server.com/api/v1/kuaishou/auth';
+      // 服务器API地址 - 使用用户提供的实际地址
+      const serverUrl = 'https://api.cloudoption.site/api/v1/kuaishou/auth';
       
       // 显示请求中的状态
       this.serverOpenId = '正在请求服务器...';
       
-      fetch(serverUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ code: code })
-      })
-      .then(response => {
-        if (!response.ok) {
-          throw new Error('网络响应不正常，状态码: ' + response.status);
-        }
-        return response.json();
-      })
-      .then(data => {
-        console.log('[请求OpenID] 服务器返回数据:', data);
-        if (data && data.open_id) {
-          this.serverOpenId = data.open_id;
-          this.sessionKey = data.session_key;
-          this.unionId = data.union_id;
-          
-          console.log('[请求OpenID] 获取成功，OpenID:', this.serverOpenId);
-        } else {
-          console.error('[请求OpenID] 服务器未返回有效的OpenID');
-          this.serverOpenId = '服务器未返回有效数据';
-        }
-      })
-      .catch(error => {
-        console.error('[请求OpenID] 请求失败:', error);
-        this.serverOpenId = '请求失败: ' + error.message;
-      });
+      // 优先使用ks命名空间的request
+      if (typeof ks !== 'undefined' && ks.request) {
+        console.log('[请求OpenID] 使用ks.request发送请求');
+        ks.request({
+          url: serverUrl,
+          method: 'POST',
+          data: { code: code },
+          header: {
+            'content-type': 'application/json'
+          },
+          success: (res) => {
+            console.log('[请求OpenID] 服务器返回数据:', res);
+            if (res.statusCode === 200 && res.data) {
+              const data = res.data;
+              if (data.open_id) {
+                this.serverOpenId = data.open_id;
+                this.sessionKey = data.session_key;
+                this.unionId = data.union_id;
+                console.log('[请求OpenID] 获取成功，OpenID:', this.serverOpenId);
+              } else {
+                console.error('[请求OpenID] 服务器未返回有效的OpenID');
+                this.serverOpenId = '服务器未返回有效数据';
+              }
+            } else {
+              console.error('[请求OpenID] 服务器返回错误:', res);
+              this.serverOpenId = '服务器返回错误: ' + (res.statusCode || '未知错误');
+            }
+          },
+          fail: (err) => {
+            console.error('[请求OpenID] 请求失败:', err);
+            this.serverOpenId = '请求失败: ' + (err.errMsg || JSON.stringify(err));
+          }
+        });
+      }
+      // 尝试使用kwaigame命名空间的request
+      else if (typeof kwaigame !== 'undefined' && kwaigame.request) {
+        console.log('[请求OpenID] 使用kwaigame.request发送请求');
+        kwaigame.request({
+          url: serverUrl,
+          method: 'POST',
+          data: { code: code },
+          header: {
+            'content-type': 'application/json'
+          },
+          success: (res) => {
+            console.log('[请求OpenID] 服务器返回数据:', res);
+            if (res.statusCode === 200 && res.data) {
+              const data = res.data;
+              if (data.open_id) {
+                this.serverOpenId = data.open_id;
+                this.sessionKey = data.session_key;
+                this.unionId = data.union_id;
+                console.log('[请求OpenID] 获取成功，OpenID:', this.serverOpenId);
+              } else {
+                console.error('[请求OpenID] 服务器未返回有效的OpenID');
+                this.serverOpenId = '服务器未返回有效数据';
+              }
+            } else {
+              console.error('[请求OpenID] 服务器返回错误:', res);
+              this.serverOpenId = '服务器返回错误: ' + (res.statusCode || '未知错误');
+            }
+          },
+          fail: (err) => {
+            console.error('[请求OpenID] 请求失败:', err);
+            this.serverOpenId = '请求失败: ' + (err.errMsg || JSON.stringify(err));
+          }
+        });
+      }
+      // 尝试使用XMLHttpRequest作为后备方案
+      else if (typeof XMLHttpRequest !== 'undefined') {
+        console.log('[请求OpenID] 使用XMLHttpRequest发送请求');
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', serverUrl, true);
+        xhr.setRequestHeader('Content-Type', 'application/json');
+        xhr.onreadystatechange = () => {
+          if (xhr.readyState === 4) {
+            if (xhr.status === 200) {
+              try {
+                const data = JSON.parse(xhr.responseText);
+                if (data.open_id) {
+                  this.serverOpenId = data.open_id;
+                  this.sessionKey = data.session_key;
+                  this.unionId = data.union_id;
+                  console.log('[请求OpenID] 获取成功，OpenID:', this.serverOpenId);
+                } else {
+                  console.error('[请求OpenID] 服务器未返回有效的OpenID');
+                  this.serverOpenId = '服务器未返回有效数据';
+                }
+              } catch (e) {
+                console.error('[请求OpenID] 解析响应失败:', e);
+                this.serverOpenId = '解析响应失败';
+              }
+            } else {
+              console.error('[请求OpenID] 服务器返回错误状态码:', xhr.status);
+              this.serverOpenId = '服务器返回错误: ' + xhr.status;
+            }
+          }
+        };
+        xhr.onerror = (e) => {
+          console.error('[请求OpenID] 请求出错:', e);
+          this.serverOpenId = '请求出错';
+        };
+        xhr.send(JSON.stringify({ code: code }));
+      }
+      // 所有方法都不可用
+      else {
+        console.error('[请求OpenID] 当前环境不支持任何网络请求API');
+        this.serverOpenId = '当前环境不支持网络请求';
+      }
     } catch (e) {
       console.error('[请求OpenID] 请求过程发生错误:', e);
-      this.serverOpenId = '请求过程出错';
+      this.serverOpenId = '请求过程出错: ' + e.message;
     }
   }
 
@@ -1737,6 +1817,23 @@ class Game {
     
     // 设置界面点击处理
     if (this.isSettingsScreen) {
+      // 如果显示OpenID弹窗，处理弹窗内的点击
+      if (this.showOpenIdPopup) {
+        if (isStart && this.closePopupBtn && this.checkButtonClick(this.closePopupBtn, touch)) {
+          this.closeOpenIdPopup();
+          return;
+        }
+        
+        // 检查整体复制按钮
+        if (isStart && this.copyWholeBtn && this.checkButtonClick(this.copyWholeBtn, touch)) {
+          this.copyToClipboardWithPermission();
+          return;
+        }
+        
+        // 弹窗显示时，阻止其他点击
+        return;
+      }
+      
       // 检查返回按钮点击
       if (isStart && this.checkButtonClick(this.backBtn, touch)) {
         this.goBack();
@@ -1746,13 +1843,19 @@ class Game {
       // 检查刷新按钮点击
       const refreshBtn = {
         x: config.width - 120,
-        y: 150,
+        y: 100,
         width: 80,
         height: 40
       };
       
       if (isStart && this.checkButtonClick(refreshBtn, touch)) {
         this.getOpenId(); // 重新获取OpenID
+        return;
+      }
+      
+      // 检查复制按钮点击
+      if (isStart && this.copyBtn && this.checkButtonClick(this.copyBtn, touch)) {
+        this.copyOpenIdToClipboard();
         return;
       }
       
@@ -2464,42 +2567,56 @@ class Game {
     this.ctx.textAlign = 'center';
     this.ctx.fillText('设置', config.width/2, 80);
     
-    // 绘制临时凭证(code)标签
+    // 绘制OpenID标签
     this.ctx.fillStyle = '#333333';
     this.ctx.font = '20px Arial';
     this.ctx.textAlign = 'left';
-    this.ctx.fillText('临时凭证(code):', 40, 150);
+    this.ctx.fillText('OpenID:', 40, 160);
     
-    // 绘制临时凭证值
-    this.ctx.fillStyle = '#666666';
-    this.ctx.font = '16px Arial';
+    // 使用绿色显示成功获取的OpenID
+    if (this.serverOpenId && this.serverOpenId.length > 5 && !this.serverOpenId.startsWith('请求')) {
+      this.ctx.fillStyle = '#34a853'; // 成功获取使用绿色
+    } else {
+      this.ctx.fillStyle = '#666666'; // 未获取使用灰色
+    }
+    this.ctx.font = '18px Arial';
     
-    // 如果临时凭证太长，需要截断显示
-    let displayCode = this.loginCode || '正在获取...';
-    if (displayCode.length > 30) {
-      displayCode = displayCode.substring(0, 27) + '...';
+    let displayServerOpenId = this.serverOpenId || '未获取';
+    // 为了美观，如果OpenID太长，可以在显示时换行
+    if (displayServerOpenId.length > 20) {
+      const maxWidth = config.width - 80; // 留出左右边距
+      let textWidth = this.ctx.measureText(displayServerOpenId).width;
+      
+      if (textWidth > maxWidth) {
+        // 每行最多显示20个字符
+        const firstPart = displayServerOpenId.substring(0, 20);
+        const secondPart = displayServerOpenId.substring(20);
+        this.ctx.fillText(firstPart, 40, 190);
+        this.ctx.fillText(secondPart, 40, 215);
+      } else {
+        this.ctx.fillText(displayServerOpenId, 40, 200);
+      }
+    } else {
+      this.ctx.fillText(displayServerOpenId, 40, 200);
     }
     
-    this.ctx.fillText(displayCode, 40, 180);
+    // 添加复制按钮
+    this.copyBtn = {
+      x: config.width - 120,
+      y: 170,
+      width: 80,
+      height: 40,
+      text: '复制'
+    };
     
-    // 绘制从服务器获取的OpenID
-    this.ctx.fillStyle = '#333333';
-    this.ctx.font = '20px Arial';
-    this.ctx.fillText('服务器返回的OpenID:', 40, 230);
-    
-    this.ctx.fillStyle = '#666666';
-    this.ctx.font = '16px Arial';
-    let displayServerOpenId = this.serverOpenId || '未请求或等待服务器响应';
-    if (displayServerOpenId.length > 30) {
-      displayServerOpenId = displayServerOpenId.substring(0, 27) + '...';
+    // 如果OpenID已获取成功，显示复制按钮
+    if (this.serverOpenId && this.serverOpenId.length > 5 && !this.serverOpenId.startsWith('请求')) {
+      this.drawButton(
+        this.copyBtn,
+        '#34a853',
+        '#ffffff'
+      );
     }
-    this.ctx.fillText(displayServerOpenId, 40, 260);
-    
-    // 绘制提示信息
-    this.ctx.fillStyle = '#ea4335';
-    this.ctx.font = '14px Arial';
-    this.ctx.fillText('提示: 获取OpenID需服务器配置KS_APP_ID和KS_APP_SECRET', 40, 310);
-    this.ctx.fillText('请修改serverUrl为您的实际服务器地址', 40, 335);
     
     // 绘制返回按钮
     this.drawButton(
@@ -2508,10 +2625,10 @@ class Game {
       '#ffffff'
     );
     
-    // 刷新凭证按钮
+    // 刷新按钮
     const refreshBtn = {
       x: config.width - 120,
-      y: 150,
+      y: 100,
       width: 80,
       height: 40,
       text: '刷新'
@@ -2519,9 +2636,111 @@ class Game {
     
     this.drawButton(
       refreshBtn,
-      '#34a853',
+      '#ea4335',
       '#ffffff'
     );
+    
+    // 显示复制成功提示
+    if (this.showCopySuccess) {
+      // 计算提示显示剩余时间
+      const now = Date.now();
+      const elapsed = now - this.copySuccessTime;
+      if (elapsed < 2000) { // 显示2秒
+        this.ctx.fillStyle = 'rgba(0,0,0,0.7)';
+        this.ctx.fillRect(config.width/2 - 100, config.height/2 - 25, 200, 50);
+        this.ctx.fillStyle = '#ffffff';
+        this.ctx.font = '18px Arial';
+        this.ctx.textAlign = 'center';
+        this.ctx.fillText('复制成功!', config.width/2, config.height/2 + 5);
+      } else {
+        this.showCopySuccess = false;
+      }
+    }
+    
+    // 显示OpenID弹窗（用于手动复制）
+    if (this.showOpenIdPopup) {
+      // 弹窗背景
+      this.ctx.fillStyle = 'rgba(0,0,0,0.7)';
+      this.ctx.fillRect(0, 0, config.width, config.height);
+      
+      // 弹窗面板
+      const popupWidth = config.width * 0.8;
+      const popupHeight = 300;
+      const popupX = (config.width - popupWidth) / 2;
+      const popupY = (config.height - popupHeight) / 2;
+      
+      this.ctx.fillStyle = '#ffffff';
+      this.ctx.fillRect(popupX, popupY, popupWidth, popupHeight);
+      
+      // 弹窗标题
+      this.ctx.fillStyle = '#4285f4';
+      this.ctx.font = '22px Arial';
+      this.ctx.textAlign = 'center';
+      this.ctx.fillText('您的OpenID', config.width/2, popupY + 40);
+      
+      // 将OpenID分成几段显示
+      let segments = [];
+      let remaining = this.serverOpenId;
+      
+      // 每6个字符分一段
+      while (remaining.length > 0) {
+        const segment = remaining.substring(0, 6);
+        segments.push(segment);
+        remaining = remaining.substring(6);
+      }
+      
+      // 显示每一段
+      this.ctx.fillStyle = '#000000';
+      this.ctx.font = '24px Arial';
+      
+      // 如果有4段以上，分两行显示
+      if (segments.length > 4) {
+        const halfIndex = Math.ceil(segments.length / 2);
+        const firstRow = segments.slice(0, halfIndex).join(' ');
+        const secondRow = segments.slice(halfIndex).join(' ');
+        
+        this.ctx.fillText(firstRow, config.width/2, popupY + 90);
+        this.ctx.fillText(secondRow, config.width/2, popupY + 125);
+      } else {
+        // 否则一行显示
+        this.ctx.fillText(segments.join(' '), config.width/2, popupY + 100);
+      }
+      
+      // 提示文字
+      this.ctx.fillStyle = '#666666';
+      this.ctx.font = '16px Arial';
+      this.ctx.fillText('请记录上方ID，已分段便于记忆', config.width/2, popupY + 165);
+      
+      // 复制按钮
+      this.copyWholeBtn = {
+        x: config.width/2 - 60,
+        y: popupY + 190,
+        width: 120,
+        height: 40,
+        text: '申请复制权限'
+      };
+      
+      this.drawButton(
+        this.copyWholeBtn,
+        '#34a853',
+        '#ffffff'
+      );
+      
+      // 关闭按钮
+      this.closePopupBtn = {
+        x: config.width/2 - 50,
+        y: popupY + popupHeight - 50,
+        width: 100,
+        height: 40,
+        text: '关闭'
+      };
+      
+      this.drawButton(
+        this.closePopupBtn,
+        '#4285f4',
+        '#ffffff'
+      );
+    }
     
     // 恢复文本对齐默认值
     this.ctx.textAlign = 'start';
@@ -2539,6 +2758,108 @@ class Game {
       this.isSettingsScreen = false;
       this.isStartScreen = true;
     }
+  }
+  
+  // 复制OpenID到剪贴板
+  copyOpenIdToClipboard() {
+    if (!this.serverOpenId || this.serverOpenId.startsWith('请求') || this.serverOpenId === '未获取') {
+      console.log('[复制] 没有有效的OpenID可复制');
+      return;
+    }
+    
+    try {
+      console.log('[复制] 尝试复制OpenID:', this.serverOpenId);
+      
+      // 显示OpenID提示框，让用户手动复制
+      this.showOpenIdPopup = true;
+      this.popupCreatedTime = Date.now();
+      
+      // 尝试授权剪贴板（直接尝试剪贴板权限，避免触发广告或其他功能）
+      if (typeof ks !== 'undefined') {
+        console.log('[复制] 尝试请求剪贴板权限');
+        
+        // 直接尝试剪贴板授权
+        ks.authorize({
+          scope: 'scope.writeClipboard', // 尝试使用通用命名格式
+          success: () => {
+            console.log('[复制] 已获得剪贴板权限');
+            this.directCopyToClipboard();
+          },
+          fail: (err) => {
+            console.error('[复制] 剪贴板授权失败:', err);
+            this.showManualCopyTips();
+          }
+        });
+      } else {
+        this.showManualCopyTips();
+      }
+      
+    } catch (e) {
+      console.error('[复制] 复制过程出错:', e);
+      this.showManualCopyTips();
+    }
+  }
+  
+  // 显示手动复制提示
+  showManualCopyTips() {
+    // 显示toast提示
+    if (typeof ks !== 'undefined' && ks.showToast) {
+      ks.showToast({
+        title: '请记下下方OpenID',
+        icon: 'none',
+        duration: 3000
+      });
+    } else if (typeof kwaigame !== 'undefined' && kwaigame.showToast) {
+      kwaigame.showToast({
+        title: '请记下下方OpenID',
+        icon: 'none',
+        duration: 3000
+      });
+    }
+  }
+  
+  // 直接复制到剪贴板
+  directCopyToClipboard() {
+    if (typeof ks !== 'undefined' && ks.setClipboardData) {
+      ks.setClipboardData({
+        data: this.serverOpenId,
+        success: () => {
+          console.log('[复制] 成功复制OpenID到剪贴板');
+          
+          // 显示成功提示
+          if (typeof ks !== 'undefined' && ks.showToast) {
+            ks.showToast({
+              title: '复制成功!',
+              icon: 'success',
+              duration: 2000
+            });
+          }
+          
+          // 延迟关闭弹窗
+          setTimeout(() => {
+            this.showOpenIdPopup = false;
+          }, 1500);
+        },
+        fail: (err) => {
+          console.error('[复制] 复制失败:', err);
+          
+          if (typeof ks !== 'undefined' && ks.showToast) {
+            ks.showToast({
+              title: '复制失败，请手动记录',
+              icon: 'none',
+              duration: 2000
+            });
+          }
+        }
+      });
+    } else {
+      this.showManualCopyTips();
+    }
+  }
+
+  // 关闭OpenID弹窗
+  closeOpenIdPopup() {
+    this.showOpenIdPopup = false;
   }
 }
 
