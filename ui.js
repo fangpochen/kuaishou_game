@@ -2,6 +2,16 @@ const { config } = require('./config.js');
 
 // 初始化UI配置
 function initUIConfig(width, height) {
+  // 暂停/恢复按钮
+  const pauseBtn = {
+    x: width - 60, // 放置在右上角
+    y: 20,
+    width: 40,
+    height: 40,
+    text: 'II', // Pause symbol (两条竖线)
+    resumeText: '▶' // Play symbol (三角箭头)
+  };
+
   return {
     // 重新开始按钮
     restartBtn: {
@@ -106,7 +116,8 @@ function initUIConfig(width, height) {
       y: height/2 - 100,
       width: 300,
       height: 200
-    }
+    },
+    pauseBtn: pauseBtn // 添加 pauseBtn 到返回值
   };
 }
 

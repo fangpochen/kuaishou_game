@@ -11,6 +11,9 @@ const { update, handleGameOver, startRevive, completeRevive, revivePlayer, reset
 const { initAds, showReviveAd, setupAdCloseListener, showAdForReward, initRewardAd } = require('./ads.js');
 const { loadImages, startLoadingMonitor, loadResources } = require('./loader.js');
 
+// 引入环境配置(如果还没有在文件顶部引入)
+const ENV = require('./env.js');
+
 class Game {
   constructor() {
     try {
@@ -162,6 +165,7 @@ class Game {
       this.settingsBtn = ui.settingsBtn;
       this.backBtn = ui.backBtn;
       this.sidebarDialog = ui.sidebarDialog;
+      this.pauseBtn = ui.pauseBtn; // 获取暂停按钮配置
       
       console.log('[游戏初始化] UI配置初始化完成');
       
@@ -377,8 +381,9 @@ class Game {
     try {
       console.log('[请求OpenID] 开始向服务器请求OpenID，code:', code);
       
-      // 服务器API地址 - 使用用户提供的实际地址
-      const serverUrl = 'https://api.cloudoption.site/api/v1/kuaishou/auth';
+      // 使用环境配置中的API URL
+      const serverUrl = ENV.getApiUrl('api/v1/kuaishou/auth');
+      console.log('[授权] 使用API地址:', serverUrl);
       
       // 显示请求中的状态
       this.serverOpenId = '正在请求服务器...';
@@ -551,7 +556,7 @@ class Game {
     if (this.isStartScreen) {
       if (isStart && checkButtonClick(this.startBtn, touch)) {
         this.isStartScreen = false; // 隐藏启动界面
-        this.isPaused = false; // 启动游戏时取消暂停状态
+        this.isPaused = false; // 开始游戏时取消暂停状态
         return;
       }
       
@@ -613,6 +618,19 @@ class Game {
       }
       
       return; // 设置界面时不处理其他触摸事件
+    }
+    
+    // 检查暂停/恢复按钮点击 (在游戏主要操作之前检查)
+    // 确保 pauseBtn 存在
+    if (isStart && this.pauseBtn && !this.isGameOver && !this.isReviving && checkButtonClick(this.pauseBtn, touch)) {
+      this.isPaused = !this.isPaused; // 切换暂停状态
+      console.log(`[游戏状态] 游戏 ${this.isPaused ? '已暂停' : '已恢复'}`);
+      return; // 阻止本次触摸事件的其他处理
+    }
+    
+    // 如果游戏已暂停，则不处理后续的游戏操作点击
+    if (this.isPaused) {
+      return;
     }
     
     // 如果游戏结束，检查重新开始按钮
@@ -692,35 +710,38 @@ class Game {
         // 更新启动界面特效
         this.startScreenEffects = updateStartScreenEffects(this.startScreenEffects);
       } else if (!this.isLoading && !this.isSettingsScreen) {
-        // 更新游戏逻辑
-        const newState = update({
-          isStartScreen: this.isStartScreen,
-          isLoading: this.isLoading,
-          isGameOver: this.isGameOver,
-          isSettingsScreen: this.isSettingsScreen,
-          isPaused: this.isPaused,
-          isReviving: this.isReviving,
-          reviveCountdown: this.reviveCountdown,
-          player: this.player,
-          obstacles: this.obstacles,
-          explosions: this.explosions,
-          score: this.score
-        });
-        
-        // 更新游戏状态
-        this.score = newState.score;
-        this.obstacles = newState.obstacles;
-        this.isReviving = newState.isReviving;
-        this.reviveCountdown = newState.reviveCountdown;
-        
-        // 检查碰撞
-        if (newState.collisionDetected) {
-          this.gameOver();
-        }
-        
-        // 检查发波碰撞
-        if (this.player.waveSkill.isActive) {
-          this.checkWaveCollisions();
+        // 只有在未加载、不在设置界面且未暂停时才更新游戏逻辑
+        if (!this.isPaused) {
+          // 更新游戏逻辑
+          const newState = update({
+            isStartScreen: this.isStartScreen,
+            isLoading: this.isLoading,
+            isGameOver: this.isGameOver,
+            isSettingsScreen: this.isSettingsScreen,
+            isPaused: this.isPaused,
+            isReviving: this.isReviving,
+            reviveCountdown: this.reviveCountdown,
+            player: this.player,
+            obstacles: this.obstacles,
+            explosions: this.explosions,
+            score: this.score
+          });
+          
+          // 更新游戏状态
+          this.score = newState.score;
+          this.obstacles = newState.obstacles;
+          this.isReviving = newState.isReviving;
+          this.reviveCountdown = newState.reviveCountdown;
+          
+          // 检查碰撞
+          if (newState.collisionDetected) {
+            this.gameOver();
+          }
+          
+          // 检查发波碰撞
+          if (this.player.waveSkill.isActive) {
+            this.checkWaveCollisions();
+          }
         }
       }
       
@@ -730,7 +751,12 @@ class Game {
       // 继续游戏循环
       requestAnimationFrame(() => this.gameLoop());
     } catch (e) {
-      console.error('游戏循环错误:', e);
+      console.error('游戏循环错误:', e); 
+      // 添加详细错误信息打印
+      if (e instanceof Error) {
+          console.error('错误消息:', e.message);
+          console.error('错误堆栈:', e.stack);
+      }
       // 尝试恢复游戏
       setTimeout(() => {
         // 如果出现严重错误，尝试重置游戏状态
@@ -801,13 +827,15 @@ class Game {
       ui: {
         restartBtn: this.restartBtn,
         adRewardBtn: this.adRewardBtn,
-        homeBtn: this.homeBtn
+        homeBtn: this.homeBtn,
+        pauseBtn: this.pauseBtn
       },
       lives: this.lives,
       score: this.score,
       isReviving: this.isReviving,
       reviveCountdown: this.reviveCountdown,
       isGameOver: this.isGameOver,
+      isPaused: this.isPaused,
       playerImage: this.playerImage,
       playerImageLoaded: this.playerImageLoaded,
       enemyImage: this.enemyImage,

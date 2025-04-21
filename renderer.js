@@ -35,8 +35,10 @@ function renderGame(ctx, gameState) {
     renderPlayer(ctx, player, gameState.playerImage, gameState.playerImageLoaded);
   }
   
-  // 绘制游戏控制UI
-  renderGameControls(ctx, gameState);
+  // 只有在游戏进行中才绘制控制UI
+  if (!isGameOver) {
+    renderGameControls(ctx, gameState);
+  }
   
   // 绘制分数
   ctx.fillStyle = '#000000';
@@ -51,6 +53,34 @@ function renderGame(ctx, gameState) {
   // 绘制游戏结束界面
   if (isGameOver) {
     renderGameOver(ctx, gameState);
+    // 游戏结束后直接返回，不再绘制后续UI（如暂停按钮）
+    return;
+  }
+  
+  // 添加日志：检查暂停按钮渲染条件和状态
+  // console.log(`[渲染检查] isGameOver: ${isGameOver}, isReviving: ${isReviving}`);
+  // console.log(`[渲染检查] pauseBtn 配置: ${gameState.ui && gameState.ui.pauseBtn ? JSON.stringify(gameState.ui.pauseBtn) : '不存在'}`);
+  // console.log(`[渲染检查] isPaused 状态: ${gameState.isPaused}`);
+
+  // 绘制暂停/恢复按钮 (仅在游戏进行中且未结束时)
+  if (!isGameOver && !isReviving) { 
+    const btn = gameState.ui.pauseBtn;
+    // 添加按钮配置存在性检查
+    if (btn) {
+      ctx.fillStyle = '#888888'; // 灰色背景
+      ctx.fillRect(btn.x, btn.y, btn.width, btn.height);
+      ctx.fillStyle = '#ffffff';
+      ctx.font = '24px Arial';
+      ctx.textAlign = 'center';
+      ctx.fillText(
+        gameState.isPaused ? btn.resumeText : btn.text, // 根据暂停状态显示不同图标
+        btn.x + btn.width / 2,
+        btn.y + btn.height / 2 + 8 // 垂直居中微调
+      );
+      ctx.textAlign = 'start'; // 恢复默认对齐
+    } else {
+      console.error('[渲染] 暂停按钮配置(pauseBtn)在 gameState.ui 中不存在!');
+    }
   }
 }
 
@@ -291,7 +321,15 @@ function renderReviveCountdown(ctx, reviveCountdown) {
 
 // 绘制游戏结束界面
 function renderGameOver(ctx, gameState) {
-  const { score, restartBtn } = gameState;
+  // 从 gameState.ui 中获取 restartBtn
+  const { score, ui } = gameState;
+  const { restartBtn } = ui;
+  
+  // 增加一个检查，如果 restartBtn 不存在则报错并返回
+  if (!restartBtn) {
+    console.error('[渲染错误] renderGameOver: gameState.ui 中缺少 restartBtn 对象!');
+    return;
+  }
   
   // 半透明背景
   ctx.fillStyle = 'rgba(0,0,0,0.5)';
